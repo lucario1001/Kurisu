@@ -138,7 +138,7 @@ class Memes:
     
     @commands.command(pass_context=True, hidden=True)
     async def headrub(self, ctx):
-        """Memes."""
+        """Cute"""
         await self._meme(ctx, "http://i.imgur.com/j6xSoKv.jpg")
 
 # Load the extension
