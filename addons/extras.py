@@ -1,6 +1,8 @@
+import datetime
 import discord
 import os
 import random
+import re
 import string
 from discord.ext import commands
 from sys import argv
@@ -16,19 +18,51 @@ class Extras:
     prune_key = "nokey"
 
     @commands.command()
-    async def kurisu(self):
+    async def kurisu(self, aliases=['about']):
         """About Kurisu"""
         embed = discord.Embed(title="Kurisu", color=discord.Color.green())
         embed.set_author(name="916253 and ihaveahax")
         embed.set_thumbnail(url="http://i.imgur.com/hjVY4Et.jpg")
         embed.url = "https://github.com/916253/Kurisu"
-        embed.description = "Kurisu, the 3DS Hacking Discord bot!"
+        embed.description = "Kurisu, the Nintendo Homebrew Discord bot!"
         await self.bot.say("", embed=embed)
 
     @commands.command()
     async def membercount(self):
         """Prints the member count of the server."""
         await self.bot.say("{} has {:,} members!".format(self.bot.server.name, self.bot.server.member_count))
+
+    @commands.has_permissions(ban_members=True)
+    @commands.command(hidden=True)
+    async def embedtext(self, *, text):
+        """Embed content."""
+        await self.bot.say(embed=discord.Embed(description=text))
+
+    @commands.command(hidden=True)
+    async def timedelta(self, length):
+        # thanks Luc#5653
+        units = {
+            "d": 86400,
+            "h": 3600,
+            "m": 60,
+            "s": 1
+        }
+        seconds = 0
+        match = re.findall("([0-9]+[smhd])", length)  # Thanks to 3dshax server's former bot
+        if match is None:
+            return None
+        for item in match:
+            seconds += int(item[:-1]) * units[item[-1]]
+        curr = datetime.datetime.now()
+        diff = datetime.timedelta(seconds=seconds)
+        # http://stackoverflow.com/questions/2119472/convert-a-timedelta-to-days-hours-and-minutes
+        days, hours, minutes = td.days, td.seconds//3600, (td.seconds//60)%60
+        msg = "```\ncurr: {}\nnew:  {}\ndiff: {}\n```".format(
+            curr,
+            curr + diff,
+            diff
+        )
+        await self.bot.say(msg)
 
     @commands.has_permissions(manage_nicknames=True)
     @commands.command()
@@ -43,6 +77,24 @@ class Extras:
         msg = await self.bot.say("I'm figuring this out!".format(self.bot.server.name))
         count = await self.bot.estimate_pruned_members(server=self.bot.server, days=days)
         await self.bot.edit_message(msg, "{:,} members inactive for {} day(s) would be kicked from {}!".format(count, days, self.bot.server.name))
+
+    @commands.has_permissions(manage_nicknames=True)
+    @commands.command()
+    async def activecount(self, days=30):
+        """Shows the number of members active in the past amount of days. Staff only."""
+        if days > 30:
+            await self.bot.say("Maximum 30 days")
+            return
+        if days < 1:
+            await self.bot.say("Minimum 1 day")
+            return
+        msg = await self.bot.say("I'm figuring this out!".format(self.bot.server.name))
+        count = await self.bot.estimate_pruned_members(server=self.bot.server, days=days)
+        if days == 1:
+            await self.bot.edit_message(msg, "{:,} members were active today in {}!".format(self.bot.server.member_count-count, self.bot.server.name))
+        else:
+            await self.bot.edit_message(msg, "{:,} members were active in the past {} days in {}!".format(self.bot.server.member_count-count, days, self.bot.server.name))
+
 
     @commands.has_permissions(manage_nicknames=True)
     @commands.command(pass_context=True)
@@ -79,6 +131,20 @@ class Extras:
         self.bot.pruning = False
         await self.bot.say("enable")
 
+    @commands.command(name="32c3")
+    async def _32c3(self):
+        """Console Hacking 2015"""
+        await self.bot.say("https://www.youtube.com/watch?v=bZczf57HSag")
+
+    @commands.command(name="33c3")
+    async def _33c3(self):
+        """Nintendo Hacking 2016"""
+        await self.bot.say("https://www.youtube.com/watch?v=8C5cn_Qj0G8")
+
+    @commands.command()
+    async def de(self):
+        invalid()
+
     @commands.has_permissions(administrator=True)
     @commands.command(pass_context=True, hidden=True)
     async def dumpchannel(self, ctx, channel_name, limit=100):
@@ -103,8 +169,63 @@ class Extras:
             else:
                 await self.bot.add_roles(author, self.bot.elsewhere_role)
                 await self.bot.send_message(author, "Access to #elsewhere granted.")
+        elif channelname == "eventchat":
+            if self.bot.eventchat_role in author.roles:
+                await self.bot.remove_roles(author, self.bot.eventchat_role)
+                await self.bot.send_message(author, "Access to #eventchat granted.")
+            else:
+                await self.bot.add_roles(author, self.bot.eventchat_role)
+                await self.bot.send_message(author, "Access to #eventchat granted.")
         else:
             await self.bot.send_message(author, "{} is not a valid toggleable channel.".format(channelname))
+
+    @commands.command(pass_context=True)
+    async def norainbow(self, ctx):
+        """Tired of it."""
+        member = ctx.message.author
+        if member.nick and member.nick[-1] == "🌈":
+            await self.bot.say("Your nickname is now \"{}\"!".format(member.display_name[0:-1].strip()))
+            await self.bot.change_nickname(member, member.display_name[0:-1])
+        elif member.name[-1] == "🌈":
+            await self.bot.say("Your username is the one with the rainbow!")
+        else:
+            await self.bot.say("You don't have a rainbow!")
+
+    @commands.command(pass_context=True)
+    async def nospooky(self, ctx):
+        """Tired of it."""
+        member = ctx.message.author
+        if member.nick and member.nick[-1] == "🎃":
+            await self.bot.say("Your nickname is now \"{}\"!".format(member.display_name[0:-1].strip()))
+            await self.bot.change_nickname(member, member.display_name[0:-1])
+        elif member.name[-1] == "🎃":
+            await self.bot.say("Your username is the one with the pumpkin!")
+        else:
+            await self.bot.say("You don't have a pumpkin!")
+
+    @commands.command(pass_context=True)
+    async def noturkey(self, ctx):
+        """Tired of it."""
+        member = ctx.message.author
+        if member.nick and member.nick[-1] == "🦃":
+            await self.bot.say("Your nickname is now \"{}\"!".format(member.display_name[0:-1].strip()))
+            await self.bot.change_nickname(member, member.display_name[0:-1])
+        elif member.name[-1] == "🦃":
+            await self.bot.say("Your username is the one with the turkey!")
+        else:
+            await self.bot.say("You don't have a turkey!")
+
+    @commands.command(pass_context=True)
+    async def noxmasthing(self, ctx):
+        """Tired of it."""
+        member = ctx.message.author
+        if member.nick and member.nick[-1] == "🎄":
+            await self.bot.say("Your nickname is now \"{}\"!".format(member.display_name[0:-1].strip()))
+            await self.bot.change_nickname(member, member.display_name[0:-1])
+        elif member.name[-1] == "🎄":
+            await self.bot.say("Your username is the one with the xmas tree!")
+        else:
+            await self.bot.say("You don't have an xmas tree!")
 
 def setup(bot):
     bot.add_cog(Extras(bot))

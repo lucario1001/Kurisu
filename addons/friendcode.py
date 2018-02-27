@@ -12,7 +12,7 @@ class FriendCode:
     def __init__(self, bot):
         self.bot = bot
         print('Loading fc.sqlite')
-        self.conn = sqlite3.connect('fc.sqlite')
+        self.conn = sqlite3.connect('data/fc.sqlite')
         print('Addon "{}" loaded'.format(self.__class__.__name__))
 
     def __unload(self):
@@ -24,7 +24,7 @@ class FriendCode:
     # based on https://github.com/megumisonoda/SaberBot/blob/master/lib/saberbot/valid_fc.rb
     def verify_fc(self, fc):
         fc = int(fc.replace('-', ''))
-        if fc > 0x7FFFFFFFFF or fc < 0x0100000000:
+        if fc > 0x7FFFFFFFFF:
             return None
         principal_id = fc & 0xFFFFFFFF
         checksum = (fc & 0xFF00000000) >> 32
@@ -49,6 +49,7 @@ class FriendCode:
             return
         c.execute('INSERT INTO friend_codes VALUES (?,?)', (int(ctx.message.author.id), fc))
         await self.bot.say("{} Friend code inserted: {}".format(ctx.message.author.mention, self.fc_to_string(fc)))
+        self.conn.commit()
 
     @commands.command(pass_context=True)
     async def fcquery(self, ctx, user):
@@ -76,6 +77,7 @@ class FriendCode:
         c = self.conn.cursor()
         c.execute('DELETE FROM friend_codes WHERE userid = ?', (int(ctx.message.author.id),))
         await self.bot.say("Friend code removed from database.")
+        self.conn.commit()
 
     @commands.command()
     async def fctest(self, fc):

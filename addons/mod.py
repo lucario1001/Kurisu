@@ -1,6 +1,8 @@
+import datetime
 import discord
 import json
 import re
+import time
 from discord.ext import commands
 from subprocess import call
 from sys import argv
@@ -14,23 +16,23 @@ class Mod:
         print('Addon "{}" loaded'.format(self.__class__.__name__))
 
     async def add_restriction(self, member, rst):
-        with open("restrictions.json", "r") as f:
+        with open("data/restrictions.json", "r") as f:
             rsts = json.load(f)
         if member.id not in rsts:
             rsts[member.id] = []
         if rst not in rsts[member.id]:
             rsts[member.id].append(rst)
-        with open("restrictions.json", "w") as f:
+        with open("data/restrictions.json", "w") as f:
             json.dump(rsts, f)
 
     async def remove_restriction(self, member, rst):
-        with open("restrictions.json", "r") as f:
+        with open("data/restrictions.json", "r") as f:
             rsts = json.load(f)
         if member.id not in rsts:
             rsts[member.id] = []
         if rst in rsts[member.id]:
             rsts[member.id].remove(rst)
-        with open("restrictions.json", "w") as f:
+        with open("data/restrictions.json", "w") as f:
             json.dump(rsts, f)
 
     @commands.has_permissions(administrator=True)
@@ -49,17 +51,21 @@ class Mod:
         await self.bot.say("👋 Restarting bot!")
         await self.bot.close()
 
-    @commands.has_permissions(manage_server=True)
     @commands.command(pass_context=True, hidden=True)
     async def userinfo(self, ctx, user):
-        """Gets user info. SuperOP+."""
+        """Gets user info. Staff and Helpers only."""
+        issuer = ctx.message.author
+        if (self.bot.helpers_role not in issuer.roles) and (self.bot.staff_role not in issuer.roles):
+            msg = "{0} This command is limited to Staff and Helpers.".format(issuer.mention)
+            await self.bot.say(msg)
+            return
         u = ctx.message.mentions[0]
         role = u.top_role.name
         if role == "@everyone":
             role = "@ everyone"
         await self.bot.say("name = {}\nid = {}\ndiscriminator = {}\navatar = {}\nbot = {}\navatar_url = {}\ndefault_avatar = {}\ndefault_avatar_url = <{}>\ncreated_at = {}\ndisplay_name = {}\njoined_at = {}\nstatus = {}\ngame = {}\ncolour = {}\ntop_role = {}\n".format(u.name, u.id, u.discriminator, u.avatar, u.bot, u.avatar_url, u.default_avatar, u.default_avatar_url, u.created_at, u.display_name, u.joined_at, u.status, u.game, u.colour, role))
 
-    @commands.has_permissions(administrator=True)
+    @commands.has_permissions(manage_nicknames=True)
     @commands.command(pass_context=True, hidden=True)
     async def matchuser(self, ctx, *, rgx: str):
         """Match users by regex."""
@@ -108,13 +114,13 @@ class Mod:
     @commands.has_permissions(manage_nicknames=True)
     @commands.command(pass_context=True, name="clear")
     async def purge(self, ctx, limit: int):
-       """Clears a given number of messages. Staff only."""
-       try:
-           await self.bot.purge_from(ctx.message.channel, limit=limit)
-           msg = "🗑 **Cleared**: {} cleared {} messages in {}".format(ctx.message.author.mention, limit, ctx.message.channel.mention)
-           await self.bot.send_message(self.bot.modlogs_channel, msg)
-       except discord.errors.Forbidden:
-           await self.bot.say("💢 I don't have permission to do this.")
+        """Clears a given number of messages. Staff only."""
+        try:
+            await self.bot.purge_from(ctx.message.channel, limit=limit)
+            msg = "🗑 **Cleared**: {} cleared {} messages in {}".format(ctx.message.author.mention, limit, ctx.message.channel.mention)
+            await self.bot.send_message(self.bot.modlogs_channel, msg)
+        except discord.errors.Forbidden:
+            await self.bot.say("💢 I don't have permission to do this.")
 
     @commands.has_permissions(manage_nicknames=True)
     @commands.command(pass_context=True, name="mute")
@@ -138,6 +144,64 @@ class Mod:
             else:
                 msg += "\nPlease add an explanation below. In the future, it is recommended to use `.mute <user> [reason]` as the reason is automatically sent to the user."
             await self.bot.send_message(self.bot.modlogs_channel, msg)
+            # change to permanent mute
+            if member.id in self.bot.timemutes:
+                self.bot.timemutes.pop(member.id)
+                with open("data/timemutes.json", "r") as f:
+                    timemutes = json.load(f)
+                timemutes.pop(member.id)
+                with open("data/timemutes.json", "w") as f:
+                    json.dump(timemutes, f)
+        except discord.errors.Forbidden:
+            await self.bot.say("💢 I don't have permission to do this.")
+
+    @commands.has_permissions(manage_nicknames=True)
+    @commands.command(pass_context=True, name="timemute")
+    async def timemute(self, ctx, user, length, *, reason=""):
+        """Mutes a user for a limited period of time so they can't speak. Staff only.\n\nLength format: #d#h#m#s"""
+        try:
+            member = ctx.message.mentions[0]
+            await self.add_restriction(member, "Muted")
+            await self.bot.add_roles(member, self.bot.muted_role)
+            issuer = ctx.message.author
+            # thanks Luc#5653
+            units = {
+                "d": 86400,
+                "h": 3600,
+                "m": 60,
+                "s": 1
+            }
+            seconds = 0
+            match = re.findall("([0-9]+[smhd])", length)  # Thanks to 3dshax server's former bot
+            if match is None:
+                return None
+            for item in match:
+                seconds += int(item[:-1]) * units[item[-1]]
+            timestamp = datetime.datetime.now()
+            delta = datetime.timedelta(seconds=seconds)
+            unmute_time = timestamp + delta
+            unmute_time_string = unmute_time.strftime("%Y-%m-%d %H:%M:%S")
+            with open("data/timemutes.json", "r") as f:
+                timemutes = json.load(f)
+            timemutes[member.id] = unmute_time_string
+            self.bot.timemutes[member.id] = [unmute_time, False]  # last variable is "notified", for <=10 minute notifications
+            with open("data/timemutes.json", "w") as f:
+                json.dump(timemutes, f)
+            msg_user = "You were muted!"
+            if reason != "":
+                msg_user += " The given reason is: " + reason
+            msg_user += "\n\nThis mute expires {} {}.".format(unmute_time_string, time.tzname[0])
+            try:
+                await self.bot.send_message(member, msg_user)
+            except discord.errors.Forbidden:
+                pass  # don't fail in case user has DMs disabled for this server, or blocked the bot
+            await self.bot.say("{} can no longer speak.".format(member.mention))
+            msg = "🔇 **Timed mute**: {} muted {} until {} | {}#{}".format(issuer.mention, member.mention, unmute_time_string, self.bot.escape_name(member.name), self.bot.escape_name(member.discriminator))
+            if reason != "":
+                msg += "\n✏️ __Reason__: " + reason
+            else:
+                msg += "\nPlease add an explanation below. In the future, it is recommended to use `.timemute <user> <length> [reason]` as the reason is automatically sent to the user."
+            await self.bot.send_message(self.bot.modlogs_channel, msg)
         except discord.errors.Forbidden:
             await self.bot.say("💢 I don't have permission to do this.")
 
@@ -152,6 +216,13 @@ class Mod:
             await self.bot.say("{} can now speak again.".format(member.mention))
             msg = "🔈 **Unmuted**: {} unmuted {} | {}#{}".format(ctx.message.author.mention, member.mention, self.bot.escape_name(member.name), self.bot.escape_name(member.discriminator))
             await self.bot.send_message(self.bot.modlogs_channel, msg)
+            if member.id in self.bot.timemutes:
+                self.bot.timemutes.pop(member.id)
+                with open("data/timemutes.json", "r") as f:
+                    timemutes = json.load(f)
+                timemutes.pop(member.id)
+                with open("data/timemutes.json", "w") as f:
+                    json.dump(timemutes, f)
         except discord.errors.Forbidden:
             await self.bot.say("💢 I don't have permission to do this.")
 
@@ -166,6 +237,7 @@ class Mod:
             msg_user = "You lost embed and upload permissions!"
             if reason != "":
                 msg_user += " The given reason is: " + reason
+            msg_user += "\n\nIf you feel this was unjustified, you may appeal in <#270890866820775946>."
             try:
                 await self.bot.send_message(member, msg_user)
             except discord.errors.Forbidden:
@@ -199,7 +271,7 @@ class Mod:
         """Remove access to help-and-questions. Staff and Helpers only."""
         author = ctx.message.author
         if (self.bot.helpers_role not in author.roles) and (self.bot.staff_role not in author.roles):
-            msg = "{} You cannot used this command.".format(author.mention)
+            msg = "{} You cannot use this command.".format(author.mention)
             await self.bot.say(msg)
             return
         try:
@@ -209,6 +281,7 @@ class Mod:
             msg_user = "You lost access to help channels!"
             if reason != "":
                 msg_user += " The given reason is: " + reason
+            msg_user += "\n\nIf you feel this was unjustified, you may appeal in <#270890866820775946>."
             try:
                 await self.bot.send_message(member, msg_user)
             except discord.errors.Forbidden:
@@ -221,6 +294,14 @@ class Mod:
                 msg += "\nPlease add an explanation below. In the future, it is recommended to use `.takehelp <user> [reason]` as the reason is automatically sent to the user."
             await self.bot.send_message(self.bot.modlogs_channel, msg)
             await self.bot.send_message(self.bot.helpers_channel, msg)
+            #add to .takehelp
+            if member.id in self.bot.timenohelp:
+                self.bot.timenohelp.pop(member.id)
+                with open("data/timenohelp.json", "r") as f:
+                    timenohelp = json.load(f)
+                timenohelp.pop(member.id)
+                with open("data/timenohelp.json", "w") as f:
+                    json.dump(timenohelp, f)
         except discord.errors.Forbidden:
             await self.bot.say("💢 I don't have permission to do this.")
 
@@ -229,7 +310,7 @@ class Mod:
         """Restore access to help-and-questions. Staff and Helpers only."""
         author = ctx.message.author
         if (self.bot.helpers_role not in author.roles) and (self.bot.staff_role not in author.roles):
-            msg = "{} You cannot used this command.".format(author.mention)
+            msg = "{} You cannot use this command.".format(author.mention)
             await self.bot.say(msg)
             return
         try:
@@ -240,8 +321,72 @@ class Mod:
             msg = "⭕️ **Help access restored**: {} restored access to help channels to {} | {}#{}".format(ctx.message.author.mention, member.mention, self.bot.escape_name(member.name), self.bot.escape_name(member.discriminator))
             await self.bot.send_message(self.bot.modlogs_channel, msg)
             await self.bot.send_message(self.bot.helpers_channel, msg)
+            #add to .givehelp
+            if member.id in self.bot.timenohelp:
+                self.bot.timenohelp.pop(member.id)
+                with open("data/timenohelp.json", "r") as f:
+                    timenohelp = json.load(f)
+                timenohelp.pop(member.id)
+                with open("data/timenohelp.json", "w") as f:
+                    json.dump(timenohelp, f)
         except discord.errors.Forbidden:
             await self.bot.say("💢 I don't have permission to do this.")
+
+    @commands.command(pass_context=True, name="timetakehelp")
+    async def timetakehelp(self, ctx, user, length, *, reason=""):
+        """Restricts a user from Assistance Channels for a limited period of time. Staff and Helpers only.\n\nLength format: #d#h#m#s"""
+        author = ctx.message.author
+        if (self.bot.helpers_role not in author.roles) and (self.bot.staff_role not in author.roles):
+            msg = "{} You cannot use this command.".format(author.mention)
+            await self.bot.say(msg)
+            return
+        try:
+            member = ctx.message.mentions[0]
+            await self.add_restriction(member, "No-Help")
+            await self.bot.add_roles(member, self.bot.nohelp_role)
+            issuer = ctx.message.author
+            # thanks Luc#5653
+            units = {
+                "d": 86400,
+                "h": 3600,
+                "m": 60,
+                "s": 1
+            }
+            seconds = 0
+            match = re.findall("([0-9]+[smhd])", length)  # Thanks to 3dshax server's former bot
+            if match is None:
+                return None
+            for item in match:
+                seconds += int(item[:-1]) * units[item[-1]]
+            timestamp = datetime.datetime.now()
+            delta = datetime.timedelta(seconds=seconds)
+            unnohelp_time = timestamp + delta
+            unnohelp_time_string = unnohelp_time.strftime("%Y-%m-%d %H:%M:%S")
+            with open("data/timenohelp.json", "r") as f:
+                timenohelp = json.load(f)
+            timenohelp[member.id] = unnohelp_time_string
+            self.bot.timenohelp[member.id] = [unnohelp_time, False]  # last variable is "notified", for <=10 minute notifications
+            with open("data/timenohelp.json", "w") as f:
+                json.dump(timenohelp, f)
+            msg_user = "You lost access to help channels temporarily!"
+            if reason != "":
+                msg_user += " The given reason is: " + reason
+            msg_user += "\n\nIf you feel this was unjustified, you may appeal in <#270890866820775946>."
+            msg_user += "\n\nThis restriction expires {} {}.".format(unnohelp_time_string, time.tzname[0])
+            try:
+                await self.bot.send_message(member, msg_user)
+            except discord.errors.Forbidden:
+                pass  # don't fail in case user has DMs disabled for this server, or blocked the bot
+            await self.bot.say("{} can no longer speak in Assistance Channels.".format(member.mention))
+            msg = "🚫 **Timed No-Help**: {} restricted {} until {} | {}#{}".format(issuer.mention, member.mention, unnohelp_time_string, self.bot.escape_name(member.name), self.bot.escape_name(member.discriminator))
+            if reason != "":
+                msg += "\n✏️ __Reason__: " + reason
+            else:
+                msg += "\nPlease add an explanation below. In the future, it is recommended to use `.timetakehelp <user> <length> [reason]` as the reason is automatically sent to the user."
+            await self.bot.send_message(self.bot.modlogs_channel, msg)
+            await self.bot.send_message(self.bot.helpers_channel, msg)
+        except discord.errors.Forbidden:
+            await self.bot.say("?? I don't have permission to do this.")
 
     @commands.has_permissions(manage_nicknames=True)
     @commands.command(pass_context=True, name="probate")
